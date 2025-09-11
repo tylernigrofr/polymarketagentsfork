@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polymarket AI Predictions</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-brain"></i> Polymarket AI Predictions</h1>
+            <p>Get AI-powered insights for smarter betting decisions</p>
+        </header>
+
+        <nav class="nav-tabs">
+            <button class="tab-btn active" onclick="showTab('markets')">
+                <i class="fas fa-chart-line"></i> Markets
+            </button>
+            <button class="tab-btn" onclick="showTab('predictions')">
+                <i class="fas fa-robot"></i> AI Predictions
+            </button>
+            <button class="tab-btn" onclick="showTab('news')">
+                <i class="fas fa-newspaper"></i> News
+            </button>
+            <button class="tab-btn" onclick="showTab('analysis')">
+                <i class="fas fa-search"></i> Deep Analysis
+            </button>
+        </nav>
+
+        <!-- Markets Tab -->
+        <div id="markets-tab" class="tab-content active">
+            <div class="section-header">
+                <h2><i class="fas fa-chart-line"></i> Available Markets</h2>
+                <button class="refresh-btn" onclick="loadMarkets()">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+
+            <div class="filters">
+                <select id="sort-select" onchange="loadMarkets()">
+                    <option value="volume">Sort by Volume</option>
+                    <option value="spread">Sort by Spread</option>
+                </select>
+                <input type="number" id="limit-input" value="20" min="1" max="100" onchange="loadMarkets()">
+                <label for="limit-input">Show top markets</label>
+            </div>
+
+            <div id="markets-container" class="markets-grid">
+                <div class="loading">Loading markets...</div>
+            </div>
+        </div>
+
+        <!-- Predictions Tab -->
+        <div id="predictions-tab" class="tab-content">
+            <div class="section-header">
+                <h2><i class="fas fa-robot"></i> AI Market Predictions</h2>
+            </div>
+
+            <div class="prediction-form">
+                <div class="form-group">
+                    <label for="market-select">Select Market:</label>
+                    <select id="market-select" onchange="populatePredictionForm()">
+                        <option value="">Choose a market...</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="prediction-question">Market Question:</label>
+                    <textarea id="prediction-question" rows="3" placeholder="What is the market asking?"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="prediction-description">Market Description:</label>
+                    <textarea id="prediction-description" rows="4" placeholder="Describe the market context..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Possible Outcomes:</label>
+                    <div id="outcomes-container">
+                        <input type="text" class="outcome-input" placeholder="Outcome 1 (e.g., Yes)">
+                        <input type="text" class="outcome-input" placeholder="Outcome 2 (e.g., No)">
+                        <button type="button" onclick="addOutcome()" class="add-outcome-btn">
+                            <i class="fas fa-plus"></i> Add Outcome
+                        </button>
+                    </div>
+                </div>
+
+                <button onclick="getPrediction()" class="predict-btn">
+                    <i class="fas fa-magic"></i> Get AI Prediction
+                </button>
+            </div>
+
+            <div id="prediction-result" class="prediction-result" style="display: none;">
+                <h3>AI Prediction Result</h3>
+                <div class="prediction-content"></div>
+            </div>
+        </div>
+
+        <!-- News Tab -->
+        <div id="news-tab" class="tab-content">
+            <div class="section-header">
+                <h2><i class="fas fa-newspaper"></i> Relevant News</h2>
+            </div>
+
+            <div class="news-search">
+                <input type="text" id="news-keywords" placeholder="Enter keywords (e.g., election, crypto, sports)">
+                <button onclick="searchNews()" class="search-btn">
+                    <i class="fas fa-search"></i> Search News
+                </button>
+            </div>
+
+            <div id="news-container" class="news-list">
+                <div class="news-placeholder">
+                    <i class="fas fa-newspaper"></i>
+                    <p>Search for news articles related to your interests</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Deep Analysis Tab -->
+        <div id="analysis-tab" class="tab-content">
+            <div class="section-header">
+                <h2><i class="fas fa-search"></i> Comprehensive Market Analysis</h2>
+            </div>
+
+            <div class="analysis-form">
+                <div class="form-group">
+                    <label for="analysis-market-select">Select Market for Deep Analysis:</label>
+                    <select id="analysis-market-select">
+                        <option value="">Choose a market...</option>
+                    </select>
+                </div>
+
+                <button onclick="performDeepAnalysis()" class="analyze-btn">
+                    <i class="fas fa-microscope"></i> Perform Deep Analysis
+                </button>
+            </div>
+
+            <div id="analysis-result" class="analysis-result" style="display: none;">
+                <h3>Comprehensive Analysis</h3>
+                <div class="analysis-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay" style="display: none;">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Analyzing with AI...</p>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
