@@ -7,11 +7,16 @@ from agents.connectors.news import News
 from agents.application.trade import Trader
 from agents.application.executor import Executor
 from agents.application.creator import Creator
+from agents.metrics.summary import summarize_tickets
 
 app = typer.Typer()
-polymarket = Polymarket()
 newsapi_client = News()
 polymarket_rag = PolymarketRAG()
+
+
+def _get_polymarket() -> Polymarket:
+    # Avoid failing at import-time if credentials are not configured.
+    return Polymarket()
 
 
 @app.command()
@@ -20,6 +25,7 @@ def get_all_markets(limit: int = 5, sort_by: str = "spread") -> None:
     Query Polymarket's markets
     """
     print(f"limit: int = {limit}, sort_by: str = {sort_by}")
+    polymarket = _get_polymarket()
     markets = polymarket.get_all_markets()
     markets = polymarket.filter_markets_for_trading(markets)
     if sort_by == "spread":
@@ -43,6 +49,7 @@ def get_all_events(limit: int = 5, sort_by: str = "number_of_markets") -> None:
     Query Polymarket's events
     """
     print(f"limit: int = {limit}, sort_by: str = {sort_by}")
+    polymarket = _get_polymarket()
     events = polymarket.get_all_events()
     events = polymarket.filter_events_for_trading(events)
     if sort_by == "number_of_markets":
@@ -116,12 +123,28 @@ def ask_polymarket_llm(user_input: str) -> None:
 
 
 @app.command()
-def run_autonomous_trader() -> None:
+def run_autonomous_trader(
+    mode: str = "dry_run",
+    max_usdc_per_trade: float = 5.0,
+    max_fraction_balance_per_trade: float = 0.05,
+) -> None:
     """
     Let an autonomous system trade for you.
     """
     trader = Trader()
-    trader.one_best_trade()
+    trader.one_best_trade(
+        mode=mode,
+        max_usdc_per_trade=max_usdc_per_trade,
+        max_fraction_balance_per_trade=max_fraction_balance_per_trade,
+    )
+
+
+@app.command()
+def summarize_runs(limit: int = 50) -> None:
+    """
+    Summarize recent DRY_RUN/PAPER executions from the local ledger.
+    """
+    pprint(summarize_tickets(limit=limit))
 
 
 if __name__ == "__main__":
