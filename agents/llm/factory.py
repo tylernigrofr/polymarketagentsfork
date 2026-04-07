@@ -101,4 +101,3 @@ def get_runtime_info(task_name: str = "default") -> LLMRuntimeInfo:
         embeddings_provider=emb_provider,
         embeddings_model=emb_model,
     )
-
