@@ -116,12 +116,20 @@ def ask_polymarket_llm(user_input: str) -> None:
 
 
 @app.command()
-def run_autonomous_trader() -> None:
+def run_autonomous_trader(
+    mode: str = "dry_run",
+    max_usdc_per_trade: float = 5.0,
+    max_fraction_balance_per_trade: float = 0.05,
+) -> None:
     """
     Let an autonomous system trade for you.
     """
     trader = Trader()
-    trader.one_best_trade()
+    trader.one_best_trade(
+        mode=mode,
+        max_usdc_per_trade=max_usdc_per_trade,
+        max_fraction_balance_per_trade=max_fraction_balance_per_trade,
+    )
 
 
 if __name__ == "__main__":

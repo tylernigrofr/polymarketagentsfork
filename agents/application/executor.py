@@ -113,10 +113,18 @@ class Executor:
         prompt = self.prompter.one_best_trade(prediction_text, outcomes, outcome_prices)
         result = self.llm.invoke(prompt)
         raw = str(result.content)
+        return self.parse_trade_proposal(raw)
 
+    def parse_trade_proposal(self, raw: str) -> "Executor.TradeProposal":
+        """
+        Parse the legacy free-form trade proposal output into a structured TradeProposal.
+        This is deterministic and does not call an LLM.
+        """
         # Very permissive parsing of the existing non-JSON format.
         side_match = re.search(r"\b(BUY|SELL)\b", raw.upper())
-        side: Literal["BUY", "SELL"] = "BUY" if not side_match else side_match.group(1)  # type: ignore[assignment]
+        side: Literal["BUY", "SELL"] = (
+            "BUY" if not side_match else side_match.group(1)  # type: ignore[assignment]
+        )
 
         floats = re.findall(r"(?<!\d)(\d+(?:\.\d+)?)(?!\d)", raw)
         price = float(floats[0]) if len(floats) >= 1 else 0.5
@@ -314,6 +322,41 @@ class Executor:
         print("trade_proposal:", trade.raw)
         print()
         return trade.raw
+
+    def source_best_trade_context(self, market_object) -> Dict[str, Any]:
+        """
+        Like `source_best_trade`, but returns a structured context object suitable for ticketing.
+        Keeps the current RAG-first data flow intact while making downstream execution deterministic.
+        """
+        market_document = market_object[0].dict()
+        market = market_document["metadata"]
+        outcome_prices = ast.literal_eval(market["outcome_prices"])
+        outcomes = ast.literal_eval(market["outcomes"])
+        question = market["question"]
+        description = market_document["page_content"]
+
+        forecast = self.forecast_probability(
+            question=question, description=description, outcome=str(outcomes)
+        )
+        proposal = self.propose_trade(
+            prediction_text=forecast.raw,
+            outcomes=[str(x) for x in outcomes],
+            outcome_prices=[float(x) for x in outcome_prices],
+        )
+
+        return {
+            "market_id": (
+                int(market.get("id")) if market.get("id") is not None else None
+            ),
+            "question": question,
+            "description": description,
+            "outcomes": outcomes,
+            "outcome_prices": outcome_prices,
+            "forecast": forecast,
+            "proposal": proposal,
+            "proposal_raw": proposal.raw,
+            "runtime": asdict(self.runtime),
+        }
 
     def format_trade_prompt_for_execution(self, best_trade: str) -> float:
         data = best_trade.split(",")

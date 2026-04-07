@@ -1,4 +1,11 @@
+import os
+from typing import Optional
+
 from agents.application.executor import Executor as Agent
+from agents.execution.executor import TradeExecutor
+from agents.execution.modes import ExecutionMode
+from agents.execution.risk import RiskLimits, compute_trade_usdc_amount
+from agents.execution.ticket import TradeIntent, TradeTicket
 from agents.polymarket.gamma import GammaMarketClient as Gamma
 from agents.polymarket.polymarket import Polymarket
 
@@ -24,7 +31,12 @@ class Trader:
         except:
             pass
 
-    def one_best_trade(self) -> None:
+    def one_best_trade(
+        self,
+        mode: Optional[str] = None,
+        max_usdc_per_trade: float = 5.0,
+        max_fraction_balance_per_trade: float = 0.05,
+    ) -> dict:
         """
 
         one_best_trade is a strategy that evaluates all events, markets, and orderbooks
@@ -34,35 +46,59 @@ class Trader:
         then executes that trade without any human intervention
 
         """
-        try:
-            self.pre_trade_logic()
+        mode = (mode or os.getenv("EXECUTION_MODE") or "dry_run").lower()
+        exec_mode = ExecutionMode(mode)
+        risk = RiskLimits(
+            max_usdc_per_trade=max_usdc_per_trade,
+            max_fraction_balance_per_trade=max_fraction_balance_per_trade,
+        )
+        executor = TradeExecutor(
+            polymarket_client=self.polymarket, mode=exec_mode, risk=risk
+        )
 
-            events = self.polymarket.get_all_tradeable_events()
-            print(f"1. FOUND {len(events)} EVENTS")
+        self.pre_trade_logic()
 
-            filtered_events = self.agent.filter_events_with_rag(events)
-            print(f"2. FILTERED {len(filtered_events)} EVENTS")
+        events = self.polymarket.get_all_tradeable_events()
+        print(f"1. FOUND {len(events)} EVENTS")
 
-            markets = self.agent.map_filtered_events_to_markets(filtered_events)
-            print()
-            print(f"3. FOUND {len(markets)} MARKETS")
+        filtered_events = self.agent.filter_events_with_rag(events)
+        print(f"2. FILTERED {len(filtered_events)} EVENTS")
 
-            print()
-            filtered_markets = self.agent.filter_markets(markets)
-            print(f"4. FILTERED {len(filtered_markets)} MARKETS")
+        markets = self.agent.map_filtered_events_to_markets(filtered_events)
+        print()
+        print(f"3. FOUND {len(markets)} MARKETS")
 
-            market = filtered_markets[0]
-            best_trade = self.agent.source_best_trade(market)
-            print(f"5. CALCULATED TRADE {best_trade}")
+        print()
+        filtered_markets = self.agent.filter_markets(markets)
+        print(f"4. FILTERED {len(filtered_markets)} MARKETS")
 
-            amount = self.agent.format_trade_prompt_for_execution(best_trade)
-            # Please refer to TOS before uncommenting: polymarket.com/tos
-            # trade = self.polymarket.execute_market_order(market, amount)
-            # print(f"6. TRADED {trade}")
+        market = filtered_markets[0]
+        trade_ctx = self.agent.source_best_trade_context(market)
+        print(f"5. CALCULATED TRADE {trade_ctx['proposal_raw']}")
 
-        except Exception as e:
-            print(f"Error {e} \n \n Retrying")
-            self.one_best_trade()
+        # Compute amount using balance + proposal size fraction (clamped by risk limits).
+        balance_usdc = float(self.polymarket.get_usdc_balance())
+        proposal = trade_ctx["proposal"]
+        amount_usdc = compute_trade_usdc_amount(
+            balance_usdc=balance_usdc,
+            proposed_fraction=proposal.size_fraction,
+            limits=risk,
+        )
+
+        ticket = TradeTicket.new(
+            mode=exec_mode.value,
+            runtime=trade_ctx.get("runtime", {}),
+        )
+        ticket.market_id = trade_ctx.get("market_id")
+        ticket.target_price = proposal.price
+        ticket.proposal_raw = trade_ctx["proposal_raw"]
+        ticket.notional_usdc = amount_usdc
+        ticket.intent = TradeIntent(side=proposal.side, amount_usdc=amount_usdc)
+
+        result = executor.execute(ticket)
+        ticket.result = result
+        print(f"6. EXECUTION RESULT {result.get('status')}")
+        return result
 
     def maintain_positions(self):
         pass
