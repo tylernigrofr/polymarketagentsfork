@@ -129,19 +129,38 @@ Notes:
 
 Implement these as Pydantic models in `agents/domain/models.py` so every subsystem shares the same types.
 
+### Contract conventions (required)
+- Every persisted artifact includes:
+  - `schema_version` (string, e.g. `"v0"`, `"v0.1"`)
+  - `created_at` / `collected_at` as ISO-8601 UTC strings
+  - explicit **units** for any numeric fields (see below)
+- Avoid “stringly typed” identifiers:
+  - Use stable ids (strings/ints) that map directly to Polymarket/Gamma/CLOB concepts.
+  - Do not rely on free-text `outcome` alone for anything that must be executable.
+
 ### `MarketSnapshot`
 - `market_id`, `event_id`
 - `question`, `description`
-- `outcomes[]`
+- `outcomes[]` (display names)
+- **Executable outcome identifiers (required for any intent/execution path)**:
+  - `outcome_token_ids[]` (CLOB token ids aligned to `outcomes[]`)
+  - `outcome_index_by_token_id` (or equivalent mapping)
 - `rules_text`, `resolution_source`
 - `end_time`
 - `implied`: `best_bid/ask/mid` per outcome, `implied_prob` per outcome
+- **Units (explicit)**:
+  - Prices are in probability space \([0,1]\) unless otherwise specified by the connector.
+  - Sizes are in “shares” (outcome tokens) unless otherwise specified by the connector.
 - `volume` / liquidity proxies (when available)
 - `collected_at`
 
 ### `OrderBookSnapshot`
 - `bids[]`, `asks[]` (price, size)
 - derived: `spread`, `depth_by_band`, `slippage_estimates` (for standard sizes)
+- **Units (explicit)**:
+  - `price`: float in \([0,1]\)
+  - `size`: float in shares (outcome tokens)
+  - `spread`: absolute probability points (e.g. 0.01 means 1%)
 
 ### `FeatureVector` (keep small)
 - pricing: `mid`, `spread`, `vig_proxy`
@@ -185,7 +204,11 @@ Implement these as Pydantic models in `agents/domain/models.py` so every subsyst
 - `audit`: included roles, weights
 
 ### `OrderIntent` (risk-gated)
-- `market_id`, `outcome`, `side`
+- `market_id`
+- **Instrument identifiers (required)**:
+  - `outcome_token_id` (CLOB token id)
+  - `outcome` (display label; non-authoritative)
+- `side`
 - `order_type` (limit/market), `limit_price?`
 - `size`: `{min, max}` + rationale
 - `max_slippage_bps`
@@ -251,16 +274,60 @@ Automation later becomes “auto-approve under strict constraints” without cha
 
 ## Storage / ledger (start simple)
 
-Start with SQLite (or JSONL) to store:
+### Decision (v0): JSONL append-only ledger
+
+To minimize churn and align with the existing “append-only run artifacts” pattern in this repo, **v0 uses JSONL**.
+
+Store:
 - raw snapshots (or hashes + compressed blobs)
 - `TradeBrief`s
 - committee `Review`s + `Recommendation`s
 - `OrderIntent`s + approvals
 - simulated/live fills
 
+### Ledger record envelope (v0)
+Each JSONL line is a single record with a stable envelope:
+
+- `type`: one of
+  - `raw_snapshot`
+  - `market_snapshot`
+  - `orderbook_snapshot`
+  - `trade_brief`
+  - `review`
+  - `recommendation`
+  - `order_intent`
+  - `approval`
+  - `fill`
+- `schema_version`: e.g. `"v0"`
+- `id`: unique record id (uuid or deterministic hash)
+- `created_at`: ISO-8601 UTC
+- `payload`: the typed object (per `agents/domain/models.py`)
+- `payload_hash`: hash of the canonicalized payload (see determinism rules below)
+- `inputs[]` (optional): hashes of upstream records this was derived from (e.g. brief → snapshots)
+
 The key requirement is **replay**: every decision is reconstructible from stored inputs.
 
 ---
+
+## Deterministic replay (v0 rules)
+
+Replay is only meaningful if we define canonicalization rules up front. v0 rules:
+
+- **Canonical JSON**:
+  - Serialize with sorted object keys.
+  - Do not include non-deterministic fields (e.g. runtime-only ids) inside `payload` unless they are derived deterministically.
+- **Stable list ordering**:
+  - For lists where order is not semantically meaningful, sort deterministically (e.g. by id).
+  - For orderbooks, preserve connector order *and* include a derived sorted view if needed for comparisons.
+- **Numeric normalization**:
+  - Normalize floats using a fixed rounding/quantization strategy before hashing (e.g. 1e-6 for prices, 1e-6 for sizes).
+  - Prefer `Decimal` for price/size fields at the contract boundary if drift becomes an issue.
+- **Time handling**:
+  - `collected_at` / `created_at` are metadata in the envelope; do not include them in the hashed payload unless explicitly required.
+- **Hash algorithm**:
+  - Use `sha256(canonical_json(payload))` for `payload_hash`.
+- **Versioning**:
+  - Any change to canonicalization or schema fields increments `schema_version`.
 
 ## Step-by-step agent-driven development plan
 
@@ -401,3 +468,21 @@ Keep the existing code working while migrating incrementally:
 - **Step 4**: Route all trade suggestions through `risk/` and `execution/approval.py`.
 
 This avoids a “big bang” rewrite and ensures each phase yields a usable tool.
+
+---
+
+## Integration with the current repo (bridge plan)
+
+To avoid running two frameworks indefinitely, each phase should explicitly “wrap, don’t fork” existing entrypoints:
+
+- **CLI**:
+  - Current: `scripts/python/cli.py` (Typer).
+  - Plan: add new commands there as thin wrappers (`candidates`, `brief`, `review`, `recommend`, …) that call into `agents/research/*`, `agents/committee/*`, etc.
+- **Polymarket data access**:
+  - Current: `agents/polymarket/gamma.py`, `agents/polymarket/polymarket.py`.
+  - Plan: initially import and wrap these in `agents/connectors/polymarket_gamma.py` / `polymarket_clob.py` rather than rewriting; migrate internals only after contracts stabilize.
+- **Ledger / run artifacts**:
+  - Current: append-only artifacts under `agents/metrics/*` (and run JSONL patterns).
+  - Plan: v0 ledger uses JSONL with typed envelopes (above). If/when SQLite is needed, it can ingest JSONL as an import source.
+
+This keeps the repo usable every step of the way and reduces rewrite risk.
