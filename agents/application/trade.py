@@ -6,6 +6,7 @@ from agents.execution.executor import TradeExecutor
 from agents.execution.modes import ExecutionMode
 from agents.execution.risk import RiskLimits, compute_trade_usdc_amount
 from agents.execution.ticket import TradeIntent, TradeTicket
+from agents.metrics.ledger import append_jsonl
 from agents.polymarket.gamma import GammaMarketClient as Gamma
 from agents.polymarket.polymarket import Polymarket
 
@@ -36,6 +37,7 @@ class Trader:
         mode: Optional[str] = None,
         max_usdc_per_trade: float = 5.0,
         max_fraction_balance_per_trade: float = 0.05,
+        runs_dir: str = "runs",
     ) -> dict:
         """
 
@@ -98,6 +100,7 @@ class Trader:
         result = executor.execute(ticket)
         ticket.result = result
         print(f"6. EXECUTION RESULT {result.get('status')}")
+        append_jsonl(runs_dir, "trade_tickets.jsonl", ticket.model_dump())
         return result
 
     def maintain_positions(self):
